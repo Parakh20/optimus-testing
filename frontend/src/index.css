@@ -1,0 +1,202 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 217 33% 17%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 217 33% 17%;
+    --surface-elevated: 210 40% 98%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 33% 17%;
+
+    /* Deep blue - professional, technical authority */
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Steel gray for secondary actions */
+    --secondary: 215 16% 47%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    /* Electric cyan for active/progress states */
+    --accent: 189 94% 43%;
+    --accent-foreground: 0 0% 100%;
+
+    /* Status colors */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+
+    --radius: 0.5rem;
+
+    /* Status badges */
+    --status-unassigned: 0 0% 63%;
+    --status-assigned: 221 83% 53%;
+    --status-in-progress: 189 94% 43%;
+    --status-submitted: 38 92% 50%;
+    --status-approved: 142 76% 36%;
+    --status-rework: 0 84% 60%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(221 83% 43%));
+    --gradient-accent: linear-gradient(135deg, hsl(189 94% 43%), hsl(189 94% 53%));
+  }
+
+  .dark {
+    /* Grid Control — blue-gray tinted dark palette */
+    --background: 245 9% 15%;
+    --foreground: 245 20% 97%;
+
+    --card: 245 10% 18%;
+    --card-foreground: 245 15% 88%;
+    --surface-elevated: 217 28% 20%;
+
+    --popover: 245 10% 20%;
+    --popover-foreground: 245 20% 97%;
+
+    --primary: 217 91% 60%;        /* keep original blue */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 245 10% 22%;
+    --secondary-foreground: 245 15% 87%;
+
+    --muted: 245 10% 24%;
+    --muted-foreground: 245 8% 62%;
+
+    --accent: 189 94% 43%;
+    --accent-foreground: 0 0% 100%;
+
+    --success: 148 55% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 85% 52%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 5 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 245 10% 27%;
+    --input: 245 10% 27%;
+    --ring: 217 91% 60%;
+
+    --status-unassigned: 245 6% 48%;
+    --status-assigned: 217 91% 60%;
+    --status-in-progress: 220 60% 55%;
+    --status-submitted: 271 81% 56%;
+    --status-approved: 148 55% 40%;
+    --status-rework: 5 72% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* The <html> element is what paints during overscroll and before React
+       mounts. Leaving it at the UA default white meant a white flash ahead of
+       every dark page (marketing, auth, blog) and a white band when rubber-band
+       scrolling on iOS. */
+    @apply bg-background;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* One visible focus indicator for the whole app. Several components replaced
+     the UA ring with a 1px border-colour swap measuring around 2:1, below the
+     3:1 that WCAG 2.2 requires of a focus indicator (1.4.11 / 2.4.13).
+     :focus-visible so a mouse click does not leave a ring behind. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Motion. Applied app-wide; the marketing page adds its own overrides for the
+     named decorative animations it declares in a scoped <style> block. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+.tf-bg-grid {
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.25;
+  mask-image: radial-gradient(ellipse at center, black 20%, transparent 80%);
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulseAmber {
+  0%, 100% { box-shadow: 0 0 0 1px #f59e0b40, 0 0 12px #f59e0b20; }
+  50%       { box-shadow: 0 0 0 1px #f59e0b60, 0 0 24px #f59e0b35; }
+}
+
+@keyframes pulseRed {
+  0%, 100% { box-shadow: 0 0 0 1px #ef444440, 0 0 12px #ef444420; }
+  50%       { box-shadow: 0 0 0 1px #ef444460, 0 0 24px #ef444435; }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  
+  .print\:block,
+  .print\:block * {
+    visibility: visible;
+  }
+  
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  @page {
+    size: A4;
+    margin: 2cm;
+  }
+}

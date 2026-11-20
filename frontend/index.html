@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <!-- Defaults for the marketing home page and for any client that does not
+         run JavaScript. Per-route title/description/canonical/og are re-applied
+         at runtime by src/lib/seo.ts — see the note there about why a canonical
+         hardcoded to "/" on every route was actively deindexing the site. -->
+    <title>Substation commissioning software | TestFlow</title>
+    <meta
+      name="description"
+      content="Digitize substation commissioning end to end: 46+ ready test templates, an offline-capable field app, role-based approvals and AI-drafted handover reports."
+    />
+    <meta name="author" content="TestFlow" />
+    <meta name="robots" content="index, follow" />
+
+    <link rel="canonical" href="https://optimustesting.com/" />
+
+    <!-- Open Graph. Social scrapers (Slack, WhatsApp, LinkedIn, X) do not run
+         JavaScript, so these static values are what they read for every URL on
+         the site. They are written as a sensible site-wide card for that reason;
+         the runtime Seo component sharpens them for browsers and for crawlers
+         that do render. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://optimustesting.com/" />
+    <meta property="og:site_name" content="TestFlow" />
+    <meta property="og:title" content="Substation commissioning software | TestFlow" />
+    <meta
+      property="og:description"
+      content="One platform for substation commissioning: 46+ test templates, an offline field app, role-based approvals and AI-drafted handover reports."
+    />
+    <meta property="og:image" content="https://optimustesting.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="TestFlow — the commissioning platform for electrical substations" />
+    <meta property="og:locale" content="en_IN" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Substation commissioning software | TestFlow" />
+    <meta
+      name="twitter:description"
+      content="One platform for substation commissioning: 46+ test templates, an offline field app, AI-drafted handover reports."
+    />
+    <meta name="twitter:image" content="https://optimustesting.com/og-image.png" />
+    <meta name="twitter:image:alt" content="TestFlow — the commissioning platform for electrical substations" />
+
+    <!-- Address-bar tint. Two values: the marketing site and the app's dark
+         theme are near-black, the app's light theme is white. One fixed dark
+         value made the light theme's chrome disagree with the page under it. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#07070c" media="(prefers-color-scheme: dark)" />
+
+    <!-- Preconnect to Supabase so the first API call is faster on tenant subdomains -->
+    <link rel="preconnect" href="https://YOUR-PROJECT.supabase.co" />
+    <link rel="dns-prefetch" href="https://YOUR-PROJECT.supabase.co" />
+
+    <!-- The hero image is served from Unsplash, a third origin on the critical
+         path. Without this the browser only discovers it after React mounts and
+         then pays a fresh DNS + TLS handshake before the LCP image can start. -->
+    <link rel="preconnect" href="https://images.unsplash.com" crossorigin />
+
+    <!-- Fonts: two families, six faces.
+         Inter was dropped — nothing declares it except as the second fallback
+         after Inter Tight inside .marketing-root, so its five faces were
+         downloaded and never rendered. Weight 800 went with it: no
+         `font-extrabold` exists anywhere in src/. JetBrains Mono is trimmed to
+         400/500, the only weights the mono type is actually set at.
+         14 faces -> 6. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- JSON-LD: Organization + SoftwareApplication.
+         Note there is deliberately no `offers` node here. It previously
+         advertised price 0 INR, which is false for every paid plan — a schema
+         claim is a public commitment and Google penalises markup that
+         contradicts the page. Real per-plan Offer markup is emitted at runtime
+         from the live `plans` rows by components/marketing/PricingSection.tsx,
+         which is the only place the true prices exist.
+         There is no aggregateRating either: we have no review corpus, and
+         inventing one is exactly the manipulation the guidelines forbid. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://optimustesting.com/#org",
+            "name": "TestFlow",
+            "legalName": "Parakh Sharma",
+            "url": "https://optimustesting.com",
+            "logo": "https://optimustesting.com/logo.png",
+            "email": "support@optimustesting.com",
+            "telephone": "+91-94135-52887",
+            "address": {
+              "@type": "PostalAddress",
+              "streetAddress": "Hostel 4, IIT Bombay, Powai",
+              "addressLocality": "Mumbai",
+              "postalCode": "400076",
+              "addressRegion": "Maharashtra",
+              "addressCountry": "IN"
+            },
+            "contactPoint": {
+              "@type": "ContactPoint",
+              "contactType": "customer support",
+              "email": "support@optimustesting.com",
+              "telephone": "+91-94135-52887",
+              "areaServed": "IN",
+              "availableLanguage": ["en", "hi"]
+            },
+            "sameAs": []
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://optimustesting.com/#app",
+            "name": "TestFlow",
+            "applicationCategory": "BusinessApplication",
+            "applicationSubCategory": "Electrical substation commissioning management",
+            "operatingSystem": "Web, iOS, Android",
+            "url": "https://optimustesting.com",
+            "publisher": { "@id": "https://optimustesting.com/#org" },
+            "description": "Multi-tenant SaaS platform for electrical substation commissioning: digital test sheets, role-based workflow, an offline-capable field engineer mobile app, and AI-drafted handover reports."
+          }
+        ]
+      }
+    </script>
+
+    <!-- Marks non-marketing hosts noindex. External rather than inline so that
+         script-src does not need 'unsafe-inline' for it. -->
+    <script src="/noindex.js"></script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

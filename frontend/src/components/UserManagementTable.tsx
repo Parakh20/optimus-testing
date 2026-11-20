@@ -1,0 +1,418 @@
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { useCompany } from '@/contexts/CompanyContext';
+import { toast } from 'sonner';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { UserRoleBadge } from './UserRoleBadge';
+import { EditRoleDialog } from './EditRoleDialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Search, Edit, UserPlus, Trash2, Users, UserMinus } from 'lucide-react';
+import { InviteUserDialog } from './InviteUserDialog';
+import { BulkInviteDialog } from './BulkInviteDialog';
+import { OffboardUserDialog } from './OffboardUserDialog';
+
+interface UserWithRole {
+  id: string;
+  name: string;
+  email: string;
+  is_active: boolean;
+  role: string;
+  role_id: string;
+  created_at: string;
+}
+
+interface UserManagementTableProps {
+  onUserCountChange?: (count: number) => void;
+}
+
+export function UserManagementTable({ onUserCountChange }: UserManagementTableProps) {
+  const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const { company } = useCompany();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [bulkInviteDialogOpen, setBulkInviteDialogOpen] = useState(false);
+  const [offboardUser, setOffboardUser] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<{
+    id: string;
+    name: string;
+    email: string;
+    currentRole: string;
+    roleId: string;
+  } | null>(null);
+  const [toggleUserId, setToggleUserId] = useState<string | null>(null);
+  const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const { data: users = [], isLoading, refetch } = useQuery({
+    queryKey: ['users-with-roles'],
+    queryFn: async () => {
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (profilesError) throw profilesError;
+
+      const { data: rolesData, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('*');
+
+      if (rolesError) throw rolesError;
+
+      const usersWithRoles: UserWithRole[] = (profilesData || []).map(profile => {
+        const userRole = (rolesData || []).find(r => r.user_id === profile.id);
+        return {
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          is_active: profile.is_active,
+          created_at: profile.created_at,
+          role: userRole?.role || 'NONE',
+          role_id: userRole?.id || '',
+        };
+      });
+
+      onUserCountChange?.(usersWithRoles.length);
+      return usersWithRoles;
+    },
+  });
+
+  const filteredUsers = users.filter((user) => {
+    const matchesSearch =
+      user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    const matchesStatus =
+      statusFilter === 'all' ||
+      (statusFilter === 'active' && user.is_active) ||
+      (statusFilter === 'inactive' && !user.is_active);
+
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
+  const handleToggleActive = async (userId: string, currentStatus: boolean) => {
+    if (userId === currentUser?.id && currentStatus) {
+      toast.error('Cannot deactivate yourself');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ is_active: !currentStatus })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      const { data: { user: actor } } = await supabase.auth.getUser();
+      await supabase.from('audit_logs').insert({
+        entity_type: 'user',
+        entity_id: userId,
+        action: 'UPDATE',
+        actor_id: actor?.id ?? null,
+        company_id: company?.id ?? null,
+        before_data: { is_active: currentStatus },
+        after_data: { is_active: !currentStatus },
+      });
+
+      toast.success(`User ${!currentStatus ? 'activated' : 'deactivated'} successfully`);
+      refetch();
+    } catch (error: any) {
+      console.error('Error toggling user status:', error);
+      toast.error('Failed to update user status');
+    }
+    setToggleUserId(null);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteUserId) return;
+    const user = users.find(u => u.id === deleteUserId);
+    if (!user) return;
+
+    setDeleting(true);
+    try {
+      // Edge Function uses Admin API to fully delete the auth user,
+      // which cascades to profile and user_roles via ON DELETE CASCADE.
+      const { data: result, error } = await supabase.functions.invoke('delete-user', {
+        body: { user_id: deleteUserId },
+      });
+
+      if (error) throw error;
+      if (result?.error) throw new Error(result.error);
+
+      toast.success(`${user.name} removed successfully`);
+      queryClient.invalidateQueries({ queryKey: ['users-with-roles'] });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Error deleting user:', err);
+      toast.error('Failed to remove user', { description: message });
+    } finally {
+      setDeleting(false);
+      setDeleteUserId(null);
+    }
+  };
+
+  const openEditDialog = (user: UserWithRole) => {
+    setSelectedUser({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      currentRole: user.role,
+      roleId: user.role_id,
+    });
+    setEditDialogOpen(true);
+  };
+
+  const userToDelete = users.find(u => u.id === deleteUserId);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem value="SUPERADMIN">Superadmin</SelectItem>
+                <SelectItem value="GM">GM</SelectItem>
+                <SelectItem value="SUPERVISOR">Manager</SelectItem>
+                <SelectItem value="ENGINEER">Engineer</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="outline" onClick={() => setBulkInviteDialogOpen(true)}>
+            <Users className="h-4 w-4 mr-2" />
+            Bulk Invite
+          </Button>
+          <Button onClick={() => setInviteDialogOpen(true)}>
+            <UserPlus className="h-4 w-4 mr-2" />
+            Invite User
+          </Button>
+        </div>
+
+        <div className="border rounded-lg">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredUsers.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    No users found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredUsers.map((user) => (
+                  <TableRow key={user.id}>
+                    <TableCell className="font-medium">{user.name}</TableCell>
+                    <TableCell>{user.email}</TableCell>
+                    <TableCell>
+                      <UserRoleBadge role={user.role} />
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={user.is_active}
+                          onCheckedChange={() => {
+                            if (user.is_active) {
+                              setToggleUserId(user.id);
+                            } else {
+                              handleToggleActive(user.id, user.is_active);
+                            }
+                          }}
+                          disabled={user.id === currentUser?.id}
+                        />
+                        <span className="text-sm text-muted-foreground">
+                          {user.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(user)}
+                        >
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Role
+                        </Button>
+                        {user.is_active && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-amber-600 hover:text-amber-700 hover:bg-amber-100/30"
+                            disabled={user.id === currentUser?.id}
+                            onClick={() => setOffboardUser({ id: user.id, name: user.name, email: user.email })}
+                            title="Offboard (transfer work + deactivate)"
+                          >
+                            <UserMinus className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          disabled={user.id === currentUser?.id}
+                          onClick={() => setDeleteUserId(user.id)}
+                          title="Permanently delete"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <InviteUserDialog
+        open={inviteDialogOpen}
+        onOpenChange={setInviteDialogOpen}
+        onSuccess={refetch}
+      />
+
+      <BulkInviteDialog
+        open={bulkInviteDialogOpen}
+        onOpenChange={setBulkInviteDialogOpen}
+        onSuccess={refetch}
+      />
+
+      <OffboardUserDialog
+        open={!!offboardUser}
+        onOpenChange={o => { if (!o) setOffboardUser(null); }}
+        user={offboardUser}
+        onSuccess={refetch}
+      />
+
+      <EditRoleDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        onSuccess={refetch}
+        user={selectedUser}
+      />
+
+      {/* Deactivate confirmation */}
+      <AlertDialog open={!!toggleUserId} onOpenChange={() => setToggleUserId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to deactivate this user? They will no longer be able to access the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (toggleUserId) {
+                  const user = users.find((u) => u.id === toggleUserId);
+                  if (user) handleToggleActive(user.id, user.is_active);
+                }
+              }}
+            >
+              Deactivate
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteUserId} onOpenChange={(open) => { if (!open) setDeleteUserId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove User</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove <strong>{userToDelete?.name}</strong> ({userToDelete?.email}) from TestFlow.
+              Their profile and role assignment will be deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={handleDeleteUser}
+            >
+              {deleting ? 'Removing...' : 'Remove User'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}

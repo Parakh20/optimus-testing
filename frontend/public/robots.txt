@@ -1,0 +1,20 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://optimustesting.com/sitemap.xml
+
+# Crawl gating is on the apex only, and it is deliberately permissive here.
+#
+# Vercel serves this same file on every host under the domain (it is a static
+# file, so a host-conditional rewrite in vercel.json would never fire — the
+# filesystem match wins first). Blocking crawlers here would therefore have to
+# block them on the marketing site too.
+#
+# The tenant app (app.optimustesting.com, company subdomain aliases, customer
+# custom domains) and the platform admin (admin.optimustesting.com) are kept
+# out of the index by an `X-Robots-Tag: noindex, nofollow` response header,
+# applied in vercel.json to every host that is NOT the apex or www. A header
+# is the right mechanism: unlike the runtime <meta> injection in index.html it
+# does not depend on the crawler executing JavaScript, and unlike robots.txt a
+# noindex directive actually removes a URL from the index rather than merely
+# asking the crawler not to fetch it.

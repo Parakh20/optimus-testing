@@ -1,0 +1,25 @@
+{
+  "nodeModulesDir": "auto",
+  "fmt": {
+    "include": [
+      "_shared/",
+      "razorpay-webhook/",
+      "notify-rework/",
+      "retention-cleanup/",
+      "start-trial/",
+      "verify-custom-domain/",
+      "notify-demo-request/"
+    ]
+  },
+  "lint": {
+    "include": [
+      "_shared/",
+      "razorpay-webhook/",
+      "notify-rework/",
+      "retention-cleanup/",
+      "start-trial/",
+      "verify-custom-domain/",
+      "notify-demo-request/"
+    ]
+  }
+}

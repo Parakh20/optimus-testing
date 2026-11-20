@@ -1,0 +1,84 @@
+# ── Logs ────────────────────────────────────────
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Dependencies ─────────────────────────────────
+node_modules
+frontend/node_modules
+
+# ── Build output ─────────────────────────────────
+dist
+dist-ssr
+frontend/dist
+frontend/dist-ssr
+frontend/storybook-static
+*.local
+
+# ── Environment files (NEVER commit these) ───────
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+# mobile/.env is intentionally committed — only public values (anon key, URL)
+!mobile/.env
+
+# ── Admin bootstrap credentials (NEVER commit) ───
+admin.env
+
+# ── Supabase ─────────────────────────────────────
+.branches
+.temp
+
+# ── Editor ───────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vercel
+
+# ── Internal docs (not needed on GitHub) ─────────
+STUDY_GUIDE.md
+# Business/GTM strategy — competitively sensitive, keep off the public repo
+docs/business/
+# Internal Claude planning/spec artifacts
+docs/superpowers/
+# AI-tool memory/state
+.serena/
+# Sibling SDD task worktrees created under this worktree by mistake (../ resolved
+# relative to an inconsistent cwd) — safety net so they can never be `git add`ed
+testflow-redesign-task2/
+testflow-redesign-task3/
+testflow-redesign-task4/
+
+# ── Tool runtime state (Claude Code plugins, etc.) ─
+.remember/
+.claude/
+.playwright-mcp/
+.vite/
+
+# ── LaTeX build artifacts ────────────────────────
+*.aux
+*.fls
+*.fdb_latexmk
+*.out
+*.synctex.gz
+texput.log
+
+*storybook.log
+.gstack/
+.superpowers/
+
+# Python bytecode from scripts/
+scripts/__pycache__/

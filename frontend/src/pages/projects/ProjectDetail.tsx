@@ -1,0 +1,460 @@
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { supabase } from '@/integrations/supabase/client';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { StatusBadge } from '@/components/StatusBadge';
+import { Badge } from '@/components/ui/badge';
+import { MetricCard } from '@/components/MetricCard';
+import { ProgressBar } from '@/components/ProgressBar';
+import { AnimatedCounter } from '@/components/AnimatedCounter';
+import { Loader2, ArrowLeft, Download, UserCheck, RefreshCw, FileText, Pencil, FileSpreadsheet } from 'lucide-react';
+import type { ExportTask } from '@/lib/projectExcelExport';
+import { ProjectStatusActions } from '@/components/ProjectStatusActions';
+import { ProjectScopeTab } from '@/components/ProjectScopeTab';
+import { ProjectTestingScopeTab } from '@/components/ProjectTestingScopeTab';
+import { ProjectEquipmentTab } from '@/components/ProjectEquipmentTab';
+import { ProjectActivityTab } from '@/components/ProjectActivityTab';
+import { ProjectPDFExport } from '@/components/ProjectPDFExport';
+import { AssignProjectDialog } from '@/components/AssignProjectDialog';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+import { dashboardPath } from '@/lib/routes';
+import { formatDate } from '@/lib/format';
+import { useFeature } from '@/lib/features';
+import { captureException } from '@/lib/monitoring';
+import { isOverdue } from '@/lib/projectStatus';
+import type { Tables } from '@/integrations/supabase/types';
+
+type Project = Tables<'projects'>;
+
+export default function ProjectDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const { userRole } = useAuth();
+  const queryClient = useQueryClient();
+  const canGenerateReport = useFeature('ai_reports');
+  const [showPDF, setShowPDF] = useState(false);
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [reportMarkdown, setReportMarkdown] = useState<string | null>(null);
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  const { data: project, isLoading: loading } = useQuery({
+    queryKey: ['project', id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('projects').select('*').eq('id', id!).single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  const { data: projectMeta, isFetching: refetching } = useQuery({
+    queryKey: ['project-meta', id],
+    queryFn: async () => {
+      const { data: equipmentData } = await supabase
+        .from('equipment_instances')
+        .select('id')
+        .eq('project_id', id!);
+
+      const hasEquipment = !!equipmentData?.length;
+      let progressStats = null;
+
+      if (equipmentData?.length) {
+        const { data: taskStatuses } = await supabase
+          .from('test_tasks')
+          .select('status')
+          .in('equipment_instance_id', equipmentData.map(e => e.id));
+        if (taskStatuses?.length) {
+          progressStats = {
+            total: taskStatuses.length,
+            approved: taskStatuses.filter(t => t.status === 'APPROVED').length,
+            submitted: taskStatuses.filter(t => t.status === 'SUBMITTED').length,
+            inProgress: taskStatuses.filter(t => t.status === 'IN_PROGRESS').length,
+            draft: taskStatuses.filter(t => t.status === 'DRAFT').length,
+          };
+        }
+      }
+
+      return { hasEquipment, progressStats };
+    },
+    enabled: !!id,
+  });
+
+  const { data: assignedSupervisor } = useQuery({
+    queryKey: ['project-supervisor', project?.assigned_to],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, name')
+        .eq('id', project!.assigned_to!)
+        .single();
+      return data ?? null;
+    },
+    enabled: !!project?.assigned_to,
+  });
+
+  const hasEquipment = projectMeta?.hasEquipment ?? false;
+  const progressStats = projectMeta?.progressStats ?? null;
+
+  const handleStatusChange = () => {
+    queryClient.invalidateQueries({ queryKey: ['project', id] });
+    queryClient.invalidateQueries({ queryKey: ['project-meta', id] });
+  };
+
+  const handleOptimisticStatusUpdate = (newStatus: string) => {
+    queryClient.setQueryData(['project', id], (old: any) =>
+      old ? { ...old, status: newStatus } : old
+    );
+  };
+
+  const handleExportExcel = async () => {
+    if (!id || !project) return;
+    setExportingExcel(true);
+    try {
+      // Fetch all equipment instances for this project
+      const { data: instances } = await supabase
+        .from('equipment_instances')
+        .select('id, label, equipment_type')
+        .eq('project_id', id);
+
+      if (!instances?.length) {
+        toast({ title: 'No equipment found', description: 'Generate equipment first.', variant: 'destructive' });
+        return;
+      }
+
+      const instanceIds = instances.map(i => i.id);
+
+      // Fetch all test tasks with templates
+      const { data: taskData } = await supabase
+        .from('test_tasks')
+        .select(`
+          id,
+          equipment_instance_id,
+          test_template:test_templates(test_name, fields)
+        `)
+        .in('equipment_instance_id', instanceIds)
+        .order('created_at');
+
+      // Fetch all test records
+      const taskIds = (taskData ?? []).map((t: any) => t.id);
+      const { data: records } = await supabase
+        .from('test_records')
+        .select('test_task_id, payload')
+        .in('test_task_id', taskIds);
+
+      const recordMap = Object.fromEntries((records ?? []).map((r: any) => [r.test_task_id, r.payload ?? {}]));
+      const instanceMap = Object.fromEntries(instances.map(i => [i.id, i]));
+
+      const exportTasks: ExportTask[] = (taskData ?? []).map((t: any) => {
+        const inst = instanceMap[t.equipment_instance_id];
+        return {
+          id: t.id,
+          instanceLabel: inst?.label ?? t.equipment_instance_id,
+          equipmentType: inst?.equipment_type ?? '',
+          testName: t.test_template?.test_name ?? 'Unknown Test',
+          templateFields: t.test_template?.fields ?? null,
+          payload: recordMap[t.id] ?? {},
+        };
+      });
+
+      // Lazy-load the Excel module so xlsx isn't in the initial bundle
+      const { exportProjectExcel } = await import('@/lib/projectExcelExport');
+      exportProjectExcel(project.project_number, project.site_name, exportTasks);
+      toast({ title: 'Excel exported', description: 'File downloaded to your device.' });
+    } catch (err: any) {
+      console.error('Excel export error:', err);
+      toast({ title: 'Export failed', description: err?.message ?? 'Something went wrong', variant: 'destructive' });
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const handleGenerateReport = async () => {
+    if (!id) return;
+    setGeneratingReport(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-report', {
+        body: { project_id: id },
+      });
+      if (error) throw error;
+      setReportMarkdown(data?.report ?? data ?? 'No report content returned.');
+    } catch (error: any) {
+      console.error('Error generating report:', error);
+      captureException(error, { where: 'generateReport', projectId: id }, 'report_failure');
+      toast({
+        title: 'Report generation failed',
+        description: error.message ?? 'Unable to generate AI report',
+        variant: 'destructive',
+      });
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  if (loading || !project) {
+    return (
+      <DashboardLayout title="Project Details">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!project) {
+    return (
+      <DashboardLayout title="Project Not Found">
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">Project not found</p>
+          <Button onClick={() => navigate(dashboardPath(userRole))} className="mt-4">
+            Back to Dashboard
+          </Button>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  return (
+    <DashboardLayout
+      title={project.project_number}
+      breadcrumbs={[{ label: 'Projects', href: dashboardPath(userRole) }, { label: project.project_number }]}
+    >
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(dashboardPath(userRole))}
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              <StatusBadge status={project.status} />
+              {isOverdue(project.end_date, project.status) && (
+                <Badge variant="destructive" className="text-sm">Overdue</Badge>
+              )}
+              {refetching && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
+              {assignedSupervisor && (
+                <>
+                  <span className="text-muted-foreground">•</span>
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      Assigned to: <span className="font-medium text-foreground">{assignedSupervisor.name}</span>
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="text-lg text-muted-foreground">{project.site_name}</p>
+          </div>
+          <div className="flex gap-2">
+            {(userRole === 'GM' || userRole === 'SUPERADMIN') && (
+              <Button variant="outline" onClick={() => navigate(`/projects/${project.id}/edit`)}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setShowAssignDialog(true)}>
+              <UserCheck className="h-4 w-4 mr-2" />
+              {assignedSupervisor ? 'Reassign' : 'Assign'}
+            </Button>
+            <Button variant="outline" onClick={() => setShowPDF(true)}>
+              <Download className="h-4 w-4 mr-2" />
+              Download PDF
+            </Button>
+            {hasEquipment && (
+              <Button variant="outline" disabled={exportingExcel} onClick={handleExportExcel}>
+                {exportingExcel
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <FileSpreadsheet className="h-4 w-4 mr-2" />}
+                {exportingExcel ? 'Exporting…' : 'Export Excel'}
+              </Button>
+            )}
+            {canGenerateReport && (userRole === 'GM' || userRole === 'SUPERADMIN') && project.status === 'CLOSED' && (
+              <Button variant="outline" disabled={generatingReport} onClick={handleGenerateReport}>
+                {generatingReport
+                  ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  : <FileText className="h-4 w-4 mr-2" />}
+                {generatingReport ? 'Generating…' : 'AI Report'}
+              </Button>
+            )}
+            <ProjectStatusActions
+              project={project}
+              onStatusChange={handleStatusChange}
+              onOptimisticUpdate={handleOptimisticStatusUpdate}
+            />
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <Tabs defaultValue="overview" className="space-y-4">
+          <TabsList className={`grid w-full ${hasEquipment ? 'grid-cols-5' : 'grid-cols-4'}`}>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="scope">Scope</TabsTrigger>
+            <TabsTrigger value="testing-scope">Testing Scope</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+            {hasEquipment && <TabsTrigger value="equipment">Equipment</TabsTrigger>}
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-4">
+            {progressStats && (
+              <div className="space-y-3">
+                <h2 className="text-section-title text-foreground">Project Progress</h2>
+                <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+                  <MetricCard
+                    label="Approved"
+                    tone="success"
+                    value={<AnimatedCounter value={progressStats.approved} />}
+                    delta={{ value: `of ${progressStats.total}`, direction: 'flat' }}
+                  />
+                  <MetricCard
+                    label="Pending Review"
+                    tone="warning"
+                    value={<AnimatedCounter value={progressStats.submitted} />}
+                  />
+                  <MetricCard
+                    label="In Progress"
+                    tone="default"
+                    value={<AnimatedCounter value={progressStats.inProgress} />}
+                  />
+                  <MetricCard
+                    label="Not Started"
+                    tone="default"
+                    value={<AnimatedCounter value={progressStats.draft} />}
+                  />
+                  <div className="col-span-2 lg:col-span-4">
+                    <ProgressBar
+                      label="Overall completion"
+                      tone="success"
+                      value={progressStats.total > 0 ? Math.round((progressStats.approved / progressStats.total) * 100) : 0}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Project Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Project Number</p>
+                    <p className="text-base">{project.project_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Status</p>
+                    <StatusBadge status={project.status} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Site Name</p>
+                    <p className="text-base">{project.site_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Client</p>
+                    <p className="text-base">{project.client || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Site Address</p>
+                    <p className="text-base">{project.site_address}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Start Date</p>
+                    <p className="text-base">{formatDate(project.start_date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">End Date</p>
+                    <p className="text-base">{formatDate(project.end_date)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Created</p>
+                    <p className="text-base">{formatDate(project.created_at)}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="scope">
+            <ProjectScopeTab projectId={project.id} />
+          </TabsContent>
+
+          <TabsContent value="testing-scope">
+            <ProjectTestingScopeTab
+              projectId={project.id}
+              projectStatus={project.status}
+              onEquipmentGenerated={() => queryClient.invalidateQueries({ queryKey: ['project-meta', id] })}
+            />
+          </TabsContent>
+
+          <TabsContent value="activity">
+            <ProjectActivityTab projectId={project.id} />
+          </TabsContent>
+
+          {hasEquipment && (
+            <TabsContent value="equipment">
+              <ProjectEquipmentTab projectId={project.id} projectStatus={project.status} />
+            </TabsContent>
+          )}
+        </Tabs>
+      </div>
+
+      {showPDF && (
+        <ProjectPDFExport
+          project={project}
+          onClose={() => setShowPDF(false)}
+        />
+      )}
+
+      <AssignProjectDialog
+        open={showAssignDialog}
+        onOpenChange={setShowAssignDialog}
+        projectId={project.id}
+        projectNumber={project.project_number}
+        currentAssignment={assignedSupervisor}
+        onSuccess={handleStatusChange}
+      />
+
+      {/* AI Report dialog */}
+      <Dialog open={!!reportMarkdown} onOpenChange={open => { if (!open) setReportMarkdown(null); }}>
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>AI Commissioning Report — {project.project_number}</DialogTitle>
+          </DialogHeader>
+          <ScrollArea className="flex-1 mt-2 pr-2">
+            <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">{reportMarkdown}</pre>
+          </ScrollArea>
+          <div className="flex justify-end pt-2 border-t">
+            <Button variant="outline" onClick={() => {
+              if (!reportMarkdown) return;
+              const blob = new Blob([reportMarkdown], { type: 'text/markdown' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${project.project_number}-ai-report.md`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}>
+              <Download className="h-4 w-4 mr-2" />
+              Download .md
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </DashboardLayout>
+  );
+}
